@@ -1,7 +1,8 @@
 # Lyrion Remote for Tufty 2350
 
 A badge app that controls a [Lyrion Music Server](https://lyrion.org) player:
-now playing with artwork, transport, volume, player choice and favorites.
+now playing with artwork, transport, volume, player choice, favorites, the
+TuneIn radio directory and the music library.
 
 ## Setup
 
@@ -24,20 +25,34 @@ It shows up in the badge menu as **Lyrion Remote**.
 
 ## Controls
 
-| Screen      | Button  | Tap              | Hold               |
-|-------------|---------|------------------|--------------------|
-| Now Playing | B       | play / pause     | open the menu      |
-|             | A       | previous track*  | skip back 10 s     |
-|             | C       | next track       | skip forward 10 s  |
-|             | UP/DOWN | volume +/- 5     | keep changing      |
-| Lists       | UP/DOWN | move             | keep moving        |
-|             | B       | select           |                    |
-|             | A       | back             |                    |
+| Screen      | Button  | Tap                        | Hold                          |
+|-------------|---------|----------------------------|-------------------------------|
+| Now Playing | B       | play / pause               | open the menu                 |
+|             | A       | previous track* / station† | skip back 10 s                |
+|             | C       | next track / station†      | skip forward 10 s             |
+|             | UP/DOWN | volume +/- 5               | keep changing                 |
+| Lists       | UP/DOWN | move                       | scroll, faster the longer held |
+|             | B       | open / play                | play all, or add to queue     |
+|             | C       | next letter (A-Z) or page  | keep jumping                  |
+|             | A       | back                       | back to Now Playing           |
 
-\* more than 5 s into a track, A restarts it instead. HOME returns to the badge menu.
+\* more than 5 s into a track, A restarts it instead.
+† while a single radio stream plays, A and C flip through your favorite stations.
+HOME returns to the badge menu.
 
-The menu has the player picker (remembered across launches), favorites
-(including folders), shuffle, repeat, a sleep timer and player power.
+The menu (hold B) has:
+
+- **Player**: pick which player to control (remembered across launches)
+- **Favorites**: your LMS favorites, including folders
+- **Radio**: the TuneIn directory (local, music, sports, news, talk, by
+  location or language, podcasts); search needs a keyboard so it's left out
+- **Library**: Artists, Albums, Genres, Playlists, New Music and Random Mix.
+  Tapping a track plays its album from that track; holding B on an artist,
+  album, genre or playlist plays all of it
+- Shuffle, repeat, a sleep timer and player power
+
+Long lists page in in the background (all 1245 artists of the test library
+in about 3.5 s); a pulsing dot next to the position shows it's still loading.
 
 After 2 minutes without a button press the screen dims and polling slows down;
 the first press only wakes it. After 10 minutes on battery the badge sleeps.
@@ -46,6 +61,7 @@ the first press only wakes it. After 10 minutes on battery the badge sleeps.
 
 - `lyrion_remote/__init__.py`: entry point, buttons, screens, power handling
 - `lyrion_remote/remote.py`: player state, polling and optimistic updates
+- `lyrion_remote/browse.py`: favorites, radio and library lists, paged in
 - `lyrion_remote/lms.py`: JSON-RPC protocol and the request queue
 - `lyrion_remote/ui.py`: drawing (HIRES, 320x240)
 - `lyrion_remote/asyncfetch.py`: non-blocking HTTP, vendored from the badge firmware

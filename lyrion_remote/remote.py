@@ -7,7 +7,7 @@
 #
 # Time is passed in as `now` (milliseconds), so this runs on desktop Python too.
 
-from lms import Status, STATUS_TAGS, REPEAT_OFF, REPEAT_ONE, REPEAT_ALL, artwork_path, parse_players, parse_favorites
+from lms import Status, STATUS_TAGS, REPEAT_OFF, REPEAT_ONE, REPEAT_ALL, artwork_path, parse_players, clean, _int
 
 POLL_MS = 1500  # normal refresh
 POLL_FAST_MS = 400  # just after a command, while the server catches up
@@ -24,6 +24,9 @@ VOLUME_STEP = 5
 SLEEP_CHOICES_MIN = (0, 15, 30, 60, 90)
 
 ART_SIZE = 112
+
+# How long the favorite stations list is trusted before it is fetched again
+STATIONS_MS = 10 * 60 * 1000
 
 
 class Remote:
@@ -48,6 +51,12 @@ class Remote:
         self.art_version = 0  # bumped whenever the artwork changes
         self._art_key = None
 
+        # Favorite radio stations as (position in favorites, name), for flipping
+        # between them with previous/next while a stream plays
+        self.stations = None
+        self._stations_at = None
+        self._station = None  # the last station picked from here
+
         self.on_player_change = None
 
     # -- polling --------------------------------------------------------------
@@ -61,7 +70,14 @@ class Remote:
         if self.player_id and not self._status_pending and now >= self._poll_due:
             self._request_status()
 
+        if self.players and (self._stations_at is None or now - self._stations_at > STATIONS_MS):
+            self._load_stations()
+
         self.client.update(now)
+
+    def query(self, cmd, callback, scoped=False):
+        # A read-only request, for browsing
+        self.client.request(self.player_id if scoped else "", cmd, callback)
 
     def refresh_players(self, callback=None):
         def done(result):
@@ -206,16 +222,24 @@ class Remote:
             s.mode = "play"
             s.power = True
 
+    # next() and previous() return a station name when they switch stations
+
     def next(self):
+        if self.surfing:
+            return self.step_station(1)
         self._command(["playlist", "index", "+1"])
+        return None
 
     def previous(self):
         s = self.status
+        if self.surfing:
+            return self.step_station(-1)
         if s is not None and not s.live and self.elapsed() > RESTART_AFTER_S:
             self._freeze_time(0)
             self._command(["time", "0"], key="seek")
         else:
             self._command(["playlist", "index", "-1"])
+        return None
 
     def seek(self, delta):
         s = self.status
@@ -270,17 +294,64 @@ class Remote:
         s.sleep = minutes * 60
         self._command(["sleep", str(minutes * 60)], key="sleep")
 
-    def load_favorites(self, item_id, callback):
-        cmd = ["favorites", "items", 0, 100]
-        if item_id:
-            cmd.append("item_id:" + item_id)
-
-        def done(result):
-            callback(None if result is None else parse_favorites(result))
-
-        self.client.request(self.player_id or "", cmd, done)
-
-    def play_favorite(self, item_id):
+    def play(self, cmd, key=None):
+        # Start something new (a station, an album...); playing powers the player on
         if self.status is not None:
             self.status.power = True
-        self._command(["favorites", "playlist", "play", "item_id:" + item_id])
+        self._command(cmd, key)
+
+    def send(self, cmd):
+        # Any other command for the player, adding to the queue say
+        self._command(cmd)
+
+    # -- favorite stations ----------------------------------------------------
+
+    def _load_stations(self):
+        self._stations_at = self.now
+
+        def done(result):
+            if result is None:
+                return
+            self.stations = []
+            for i, item in enumerate(result.get("loop_loop") or []):
+                if _int(item.get("isaudio")) and not _int(item.get("hasitems")):
+                    self.stations.append((i, clean(item.get("name"))))
+
+        self.client.request("", ["favorites", "items", 0, 100], done, key="stations")
+
+    @property
+    def surfing(self):
+        # Previous/next flip between favorite stations while a lone stream plays
+        s = self.status
+        return bool(s is not None and s.live and s.tracks <= 1 and self.stations)
+
+    def step_station(self, delta):
+        # Play the favorite station delta places from the current one and return
+        # its name. Fast presses send only the last pick.
+        stations = self.stations
+        playing = self.status.album.lower()
+        pos = self._station
+        for i, (_, name) in enumerate(stations):
+            if name.lower() == playing:
+                pos = i
+                break
+
+        if pos is None:
+            pos = 0 if delta > 0 else len(stations) - 1
+        else:
+            pos = (pos + delta) % len(stations)
+        self._station = pos
+        index, name = stations[pos]
+
+        # Show the station until the server reports what it is playing
+        s = self.status
+        s.title, s.artist, s.album = name, "", ""
+        s.time = 0
+        self._status_at = self.now
+        self.art = None
+        self._art_key = None
+        self.art_version += 1
+
+        # Favorites are addressed by position, which stays valid across sessions
+        self.play(["favorites", "playlist", "play", "item_id:{}".format(index)], key="station")
+        return name

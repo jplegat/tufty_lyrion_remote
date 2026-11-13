@@ -10,9 +10,15 @@ SRC="$(cd "$(dirname "$0")" && pwd)/lyrion_remote"
 
 if [ "$1" = "--disk" ] && [ ! -d "$VOLUME/apps" ]; then
   echo "Switching the badge to disk mode..."
-  mpremote exec "import powman; powman.reset_into_msc()" >/dev/null 2>&1 || true
-  i=0
-  while [ ! -d "$VOLUME/apps" ] && [ $i -lt 30 ]; do sleep 1; i=$((i + 1)); done
+  # The request can be lost if the serial port was only just released by an
+  # earlier mpremote, so try a few times
+  attempt=0
+  while [ ! -d "$VOLUME/apps" ] && [ $attempt -lt 3 ]; do
+    attempt=$((attempt + 1))
+    mpremote exec "import powman; powman.reset_into_msc()" >/dev/null 2>&1 || true
+    i=0
+    while [ ! -d "$VOLUME/apps" ] && [ $i -lt 15 ]; do sleep 1; i=$((i + 1)); done
+  done
 fi
 
 if [ ! -d "$VOLUME/apps" ]; then

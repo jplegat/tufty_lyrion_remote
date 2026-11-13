@@ -1,6 +1,8 @@
 # Drawing for the remote: Now Playing, the menu lists and full-screen messages.
 # Everything is laid out for HIRES (320x240).
 
+import math
+
 W, H = 320, 240
 
 BG = color.rgb(14, 16, 22)
@@ -299,17 +301,23 @@ def now_playing(remote, art_img):
     label("hold for menu", 160 - 40, FOOT_Y + 8, 9, DIM, 80, CENTER)
 
 
-def list_screen(title, rows, index, top, loading=False, empty="Nothing here"):
-    # rows: (label, value, dot_pen or None, folder) tuples
-    label(title, 12, 5, 15, TEXT, W - 24)
+def list_screen(title, rows, index, top, loading=False, empty="Nothing here", position="",
+                labels=("Back", "Select", None), hint=None):
+    # rows: dicts with name and value, and optionally dot (a pen), folder and dim
+    position_w = _width(position, 12) + 4 if position else 0
+    label(title, 12, 5, 15, TEXT, W - 40 - position_w)
+    if position:
+        label(position, W - 12 - position_w, 8, 12, DIM, position_w, RIGHT)
+    if loading and rows:
+        # A pulsing dot while the rest of the list pages in
+        screen.pen = color.rgb(246, 135, 4, 90 + int(80 * math.sin(badge.ticks / 150)))
+        screen.shape(shape.circle(W - 20 - position_w, 14, 3))
 
-    if rows is None or (loading and not rows):
-        label("Loading" + _dots(), 12, LIST_TOP + 8, 15, DIM)
-    elif not rows:
-        label(empty, 12, LIST_TOP + 8, 15, DIM)
+    if not rows:
+        label("Loading" + _dots() if loading or rows is None else empty, 12, LIST_TOP + 8, 15, DIM)
     else:
         for i in range(top, min(len(rows), top + LIST_ROWS)):
-            text, value, dot, folder = rows[i]
+            r = rows[i]
             y = LIST_TOP + (i - top) * LIST_ROW
 
             if i == index:
@@ -319,20 +327,26 @@ def list_screen(title, rows, index, top, loading=False, empty="Nothing here"):
                 screen.shape(shape.rounded_rectangle(6, y + 5, 3, LIST_ROW - 13, 1))
 
             x = 16
+            dot = r.get("dot")
             if dot is not None:
                 screen.pen = dot
                 screen.shape(shape.circle(x + 4, y + LIST_ROW / 2 - 1, 4))
                 x += 14
 
-            value_w = 0
+            # Right-hand side: a ">" for folders, then the value to its left
+            right = W - 16
+            if r.get("folder"):
+                label(">", right - 8, y + 4, 14, DIM, 10)
+                right -= 16
+            value = r.get("value")
             if value:
                 value_w = min(110, _width(value, 14) + 4)
-                label(value, W - 16 - value_w, y + 4, 14, DIM, value_w, RIGHT)
-            if folder:
-                label(">", W - 24, y + 4, 14, DIM, 10)
-                value_w = max(value_w, 14)
+                right -= value_w
+                label(value, right, y + 4, 14, DIM, value_w, RIGHT)
+                right -= 8
 
-            label(text, x, y + 4, 15, TEXT if i == index else DIM, W - x - 24 - value_w)
+            pen = FAINT if r.get("dim") else TEXT if i == index else DIM
+            label(r["name"], x, y + 4, 15, pen, right - x)
 
         # Scroll hint when the list runs past the screen
         if len(rows) > LIST_ROWS:
@@ -342,7 +356,26 @@ def list_screen(title, rows, index, top, loading=False, empty="Nothing here"):
             screen.pen = FAINT
             screen.rectangle(W - 4, int(y), 2, int(h))
 
-    footer(("Back", "Select", None))
+    footer(labels)
+    if hint:
+        label(hint, BUTTON_X[1] - 60, FOOT_Y + 8, 9, DIM, 120, CENTER)
+
+
+def bubble(text):
+    # A big letter in the middle of the screen while jumping through a list
+    screen.pen = ACCENT
+    screen.shape(shape.rounded_rectangle(W / 2 - 32, 80, 64, 64, 12))
+    label(text, W / 2 - 32, 92, 36, BG, 64, CENTER)
+
+
+def toast(text):
+    # A short confirmation just above the footer
+    w = min(W - 40, _width(text, 13) + 28)
+    x = (W - w) / 2
+    y = FOOT_Y - 46
+    screen.pen = ACCENT
+    screen.shape(shape.rounded_rectangle(x, y, w, 26, 13))
+    label(text, x + 14, y + 5, 13, BG, w - 28, CENTER)
 
 
 def message(title, body="", pen=TEXT, busy=False):

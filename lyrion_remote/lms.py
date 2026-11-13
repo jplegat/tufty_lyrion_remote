@@ -41,6 +41,11 @@ def _int(value, default=0):
     return int(_num(value, default))
 
 
+def clean(text):
+    # Tags sometimes carry control characters that the fonts can't draw
+    return "".join(c for c in str(text or "") if c >= " ").strip()
+
+
 class Status:
     # The fields of an LMS "status" reply that the remote shows, with the
     # player's quirks (string numbers, negative volume when muted) ironed out.
@@ -68,10 +73,10 @@ class Status:
         self.tracks = _int(result.get("playlist_tracks"))
         self.index = _int(result.get("playlist_cur_index"))
 
-        self.title = track.get("title") or result.get("current_title") or ""
-        self.artist = track.get("artist") or ""
+        self.title = clean(track.get("title") or result.get("current_title"))
+        self.artist = clean(track.get("artist"))
         # Internet radio has no album, the station name stands in for it
-        self.album = track.get("album") or track.get("remote_title") or ""
+        self.album = clean(track.get("album") or track.get("remote_title"))
 
         self.art_key = "{}|{}".format(track.get("coverid", ""), track.get("artwork_url", ""))
 
@@ -89,24 +94,12 @@ def parse_players(result):
     for p in result.get("players_loop", []):
         players.append({
             "id": p["playerid"],
-            "name": p.get("name") or p["playerid"],
+            "name": clean(p.get("name")) or p["playerid"],
             "connected": bool(_int(p.get("connected"))),
             "power": bool(_int(p.get("power"))),
             "playing": bool(_int(p.get("isplaying"))),
         })
     return players
-
-
-def parse_favorites(result):
-    items = []
-    for item in result.get("loop_loop", []):
-        items.append({
-            "id": item["id"],
-            "name": item.get("name") or "?",
-            "audio": bool(_int(item.get("isaudio"))),
-            "folder": bool(_int(item.get("hasitems"))),
-        })
-    return items
 
 
 def artwork_path(player, size):

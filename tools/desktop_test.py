@@ -14,6 +14,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lyrion_remote"))
 
+import browse  # noqa: E402
 import lms  # noqa: E402
 from remote import Remote  # noqa: E402
 
@@ -87,11 +88,89 @@ def main():
         remote.now += 1000
         check("elapsed interpolates", abs(remote.elapsed() - t0 - 1) < 0.01)
 
-    favorites = []
-    remote.load_favorites(None, favorites.append)
-    run(remote, 3, until=lambda: favorites)
-    check("favorites listed", bool(favorites and favorites[0]),
-          str([(f["name"], f["id"], f["audio"], f["folder"]) for f in (favorites[0] or [])] if favorites else ""))
+    # -- browsing ------------------------------------------------------------
+
+    def load(feed, seconds=15):
+        loader = browse.Loader(remote, feed)
+        start = time.monotonic()
+        while not (loader.done or loader.failed) and time.monotonic() - start < seconds:
+            loader.pump()
+            remote.update(int(time.monotonic() * 1000))
+        return loader
+
+    favorites = load(browse.XMLFeed("favorites", "Favorites"))
+    check("favorites listed", bool(favorites.rows), str([(r["name"], r["id"]) for r in favorites.rows]))
+    if favorites.rows:
+        check("favorite plays by item_id", favorites.feed.play(favorites.rows, 0)[:3] == ["favorites", "playlist", "play"])
+
+    radio = load(browse.RadioFeed())
+    check("radio directory listed", bool(radio.rows) and all(r["id"] != "search" for r in radio.rows),
+          str([r["name"] for r in radio.rows]))
+    music = [i for i, r in enumerate(radio.rows) if r["id"] == "music"]
+    if music:
+        # Stations sit a few folders down (Music > Country > Local Stations)
+        level, path, cmd = load(radio.feed.open(radio.rows, music[0])), [], None
+        for _ in range(4):
+            path.append(level.feed.title)
+            playable = [i for i, r in enumerate(level.rows) if r["audio"] and not r["folder"]]
+            if playable:
+                cmd = level.feed.play(level.rows, playable[0])
+                break
+            if not level.rows:
+                break
+            level = load(level.feed.open(level.rows, 0))
+        check("radio station reachable", cmd is not None, " > ".join(path) + ": " + " ".join(cmd or []))
+
+    library = browse.Loader(remote, browse.LibraryFeed())
+    check("library menu", [r["name"] for r in library.rows][:2] == ["Artists", "Albums"])
+
+    started = time.monotonic()
+    artists = load(library.feed.open(library.rows, 0), 60)
+    letters = sorted(set(browse.letter(r) for r in artists.rows))
+    check("all artists paged in", artists.done and len(artists.rows) == artists.total,
+          "{} of {} in {:.1f}s, {} letters: {}".format(len(artists.rows), artists.total, time.monotonic() - started,
+                                                    len(letters), "".join(letters)))
+
+    # Open the first artist with albums, then that album's tracks
+    albums = None
+    for i in range(min(20, len(artists.rows))):
+        albums = load(artists.feed.open(artists.rows, i))
+        if albums.rows:
+            break
+    check("artist opens to albums", bool(albums and albums.rows), albums.feed.title if albums else "")
+    if albums and albums.rows:
+        tracks = load(albums.feed.open(albums.rows, 0))
+        check("album opens to tracks", bool(tracks.rows), "{}: {}".format(tracks.feed.title, [(r["name"], r["value"]) for r in tracks.rows[:3]]))
+        if tracks.rows:
+            cmd = tracks.feed.play(tracks.rows, len(tracks.rows) - 1)
+            check("track plays album from its position", cmd[-1] == "play_index:{}".format(len(tracks.rows) - 1)
+                  and cmd[2].count(",") == len(tracks.rows) - 1, " ".join(cmd)[:90])
+        check("album plays whole", albums.feed.play_all(albums.rows, 0)[:3] == ["playlistcontrol", "cmd:load", "album_id:{}".format(albums.rows[0]["id"])])
+
+    new = load(browse.AlbumsFeed(new=True), 5)
+    check("new music listed", bool(new.rows), str([r["name"] for r in new.rows[:3]]))
+
+    genres = load(browse.GenresFeed())
+    check("genres listed", bool(genres.rows), "{} genres".format(len(genres.rows)))
+
+    # -- favorite station surfing (commands inspected, never sent) ---------------
+
+    run(remote, 2, until=lambda: remote.stations is not None)
+    check("stations loaded", bool(remote.stations), str(remote.stations))
+    if remote.stations and s:
+        saved = remote.status
+        remote.status = lms.Status({"remote": 1, "playlist_tracks": 1, "mode": "play",
+                                    "playlist_loop": [{"title": "x", "remote_title": remote.stations[0][1]}]})
+        queued = []
+        for delta in (1, 1, -1):
+            remote.step_station(delta)
+        for item in remote.client._queue:
+            queued.append(item[1])
+        remote.client._queue[:] = [item for item in remote.client._queue if item[0] != "station"]
+        expected = remote.stations[1 % len(remote.stations)][0]
+        check("station presses coalesce to the last pick", len([b for b in queued if b"favorites" in b]) == 1
+              and "item_id:{}".format(expected).encode() in queued[-1], queued[-1].decode()[-60:])
+        remote.status = saved
 
     # A command round trip that changes nothing: re-send the current volume.
     # Two queued volume changes should coalesce into one request.
