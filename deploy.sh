@@ -29,6 +29,9 @@ fi
 COPYFILE_DISABLE=1 rsync -rt --delete \
   --exclude '__pycache__' --exclude '.DS_Store' --exclude '._*' \
   "$SRC/" "$VOLUME/apps/lyrion_remote/"
+# macOS still leaves AppleDouble ._ files on the FAT volume, and --exclude
+# shields them from --delete, so clear them out explicitly
+find "$VOLUME/apps/lyrion_remote" -name '._*' -delete
 sync
 echo "Copied $(ls "$VOLUME/apps/lyrion_remote" | wc -l | tr -d ' ') files to $VOLUME/apps/lyrion_remote"
 
