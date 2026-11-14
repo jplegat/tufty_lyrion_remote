@@ -11,6 +11,7 @@
 # Needs LMS_HOST (and optionally LMS_PORT) in secrets.py next to the WiFi details.
 
 import os
+import struct
 import sys
 
 # Work from wherever the app was launched, /system/apps or an mpremote mount
@@ -419,6 +420,33 @@ def header(title):
     ui.header(title, _meters["battery"], _meters["charging"], _meters["rssi"], remote.offline)
 
 
+# -- wifi -----------------------------------------------------------------------
+
+# The radio hops between access points (mesh nodes, say) on its own, but by
+# default only once the signal drops below -75 dBm and another node is 20 dB
+# stronger, so the badge clings to a distant node with a closer one in range.
+# Start looking sooner and settle for a smaller gain. The chip forgets these when
+# the radio restarts, so they are set again whenever WiFi comes up.
+ROAM_TRIGGER_DBM = -70
+ROAM_DELTA_DB = 10
+
+# Broadcom's WLC_SET_ROAM_TRIGGER and WLC_SET_ROAM_DELTA, numbered the way the
+# CYW43 driver wants them (command << 1, plus 1 for a set). Both take
+# (value, band), and band 3 means all bands.
+_SET_ROAM_TRIGGER = 55 << 1 | 1
+_SET_ROAM_DELTA = 57 << 1 | 1
+
+_wifi_up = False
+
+
+def tune_roaming():
+    try:
+        for cmd, value in ((_SET_ROAM_TRIGGER, ROAM_TRIGGER_DBM), (_SET_ROAM_DELTA, ROAM_DELTA_DB)):
+            wifi.wlan.ioctl(cmd, bytearray(struct.pack("<ii", value, 3)))
+    except (AttributeError, OSError) as e:
+        print("Roaming left at the defaults:", e)
+
+
 # -- power ----------------------------------------------------------------------
 
 last_input = badge.ticks
@@ -485,6 +513,7 @@ def update_art():
 
 
 def update():
+    global _wifi_up
     now = badge.ticks
     buttons.update(now)
     manage_power(now)
@@ -492,9 +521,14 @@ def update():
     ui.background()
 
     if not wifi.connect():
+        _wifi_up = False
         header("Lyrion Remote")
         ui.message("Connecting to WiFi", wifi.status()[1], busy=True)
         return None
+
+    if not _wifi_up:
+        _wifi_up = True
+        tune_roaming()
 
     remote.idle = dimmed
     remote.update(now)
