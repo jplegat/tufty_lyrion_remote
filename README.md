@@ -21,7 +21,12 @@ Then copy the app over and eject:
 ./deploy.sh --disk   # or let the script switch it over USB (needs mpremote)
 ```
 
-It shows up in the badge menu as **Lyrion Remote**.
+It shows up in the badge menu as **Lyrion Remote**, as the first icon, so it's
+already selected when the badge starts. The stock menu sorts apps by folder
+name, so `deploy.sh` also installs `badge_menu/app.py`, a copy of the v3.1.1
+menu that puts the apps in its `PINNED` list first. It only replaces the stock
+v3.1.1 menu or an earlier copy of its own, and otherwise leaves the menu alone
+and says so. A firmware update restores the stock menu; deploy again after one.
 
 ## Controls
 
@@ -65,6 +70,7 @@ the first press only wakes it. After 10 minutes on battery the badge sleeps.
 - `lyrion_remote/lms.py`: JSON-RPC protocol and the request queue
 - `lyrion_remote/ui.py`: drawing (HIRES, 320x240)
 - `lyrion_remote/asyncfetch.py`: non-blocking HTTP, vendored from the badge firmware
+- `badge_menu/app.py`: the badge's launcher, vendored from the firmware, with this app pinned first
 
 ## Development tools
 
